@@ -1,13 +1,15 @@
+#!env/bin/python
 import argparse
 import itertools
 import pipeit
+import sys
 
 from typing import List, Tuple
 
 
 def group_elements(elements:List[str], _type:str, r:int) -> List[Tuple[str, ...]]:
     if _type == 'prod':
-        return list(itertools.product(elements, r))
+        return list(itertools.product(elements, repeat=r))
     if _type == 'comb':
         return list(itertools.combinations(elements, r=r))
     if _type == 'comb_rep':
@@ -21,10 +23,11 @@ def main():
     args = argp.parse_args()
 
     def process(data):
-        data.groups = group_elements(data.elements, args.type, args.n_in_group)
+        # print('data:', data, file=sys.stderr)
+        data['groups'] = group_elements(data['elements'], args.type, args.n_in_group)
         return data
 
-    return pipeit.pipeit(args, process)
+    return pipeit.pipeit_with_json(args, process)
 
 
 if __name__ == "__main__":
