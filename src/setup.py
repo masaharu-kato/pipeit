@@ -8,5 +8,5 @@ setup(
     author_email='fudai.mk@gmail.com',
     description='Pipeit module',
     packages=find_packages(),
-    install_requires=[],
+    install_requires=['toml'],
 )
