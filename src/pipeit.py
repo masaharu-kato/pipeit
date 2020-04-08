@@ -60,14 +60,41 @@ def _pipeit_with_io(
     program_path:str,
     args:Args,
     proc:Callable[[Optional[IO]], IO],
+    **options
+):
+    return _pipeit_with_iopath(program_path, args, lambda in_path, out_path: _proc_with_io(proc, in_path, out_path, **options), **options)
+
+
+def _proc_with_io(
+    proc:Callable[[Optional[IO]], IO],
+    in_path:Optional[str],
+    out_path:Optional[str],
     *,
-    in_is_binary :bool=True,
+    in_is_binary:bool=True,
     out_is_binary:bool=True,
+    **options
+):
+    with open(out_path, mode=('wb' if out_is_binary else 'w')) as out_file:
+        if in_path is None:
+            proc(None, out_file)
+        else:
+            with open(in_path, mode=('rb' if in_is_binary else 'r')) as in_file:
+                proc(in_file, out_file)
+
+
+
+def _pipeit_with_iopath(
+    program_path:str,
+    args:Args,
+    proc:Callable[[Optional[str]], str],
+    *,
     disable_cache:bool=False,
+    no_output:bool=False,
+    **options
 ):
 
     command_line = ' '.join(sys.argv)
-    print_log = lambda content: print(command_line + '\n    ' + content, file=sys.stderr)
+    print_log = lambda *args: print(*args, file=sys.stderr)
 
     program_path = os.path.abspath(program_path)
     program_name = os.path.basename(program_path)
@@ -75,8 +102,27 @@ def _pipeit_with_io(
     args = (args if isinstance(args, dict) else vars(args)) if args else {}
     args = dict(sorted(args.items(), key=lambda x: x[0]))
 
-    in_meta:dict = json.load(sys.stdin) if not sys.stdin.isatty() else {}
-    # in_meta's key: binaries:(path, hash), parameters:(program, input, arguments)
+
+    cache_dir = os.path.abspath(os.path.join(os.path.dirname(program_path), CACHE_RELDIR))
+
+    in_meta:Optional[dict] = None
+    in_binary_path:Optional[str] = None
+
+    if not sys.stdin.isatty():
+        # in_meta's key: binaries:(path, hash), parameters:(program, input, arguments)
+        
+        in_meta:Optional[dict] = json.load(sys.stdin)
+
+        if not 'binary' in in_meta or not 'path' in in_meta['binary']:
+            raise RuntimeError('Missing path in input metafile.')
+
+        in_binary_path = os.path.join(cache_dir, in_meta['binary']['path'])
+
+
+    if no_output:
+        proc(in_binary_path, None)
+        return
+
 
     # make parameters in result data
     result_parameters = {
@@ -86,7 +132,6 @@ def _pipeit_with_io(
     }
     result_hash = HASH_FUNC(json.dumps(result_parameters).encode())
 
-    cache_dir = os.path.join(os.path.dirname(program_path), CACHE_RELDIR)
     cache_relpath_noext = os.path.join(program_name, result_hash)
     cache_path_noext = os.path.abspath(os.path.join(cache_dir, cache_relpath_noext))
     cache_binary_path = cache_path_noext + CACHE_BINARY_EXT
@@ -98,23 +143,22 @@ def _pipeit_with_io(
         print_log('Generating...',)
 
         os.makedirs(os.path.dirname(cache_path_noext), exist_ok=True)
-        
+
         # process data with input file (if exists) and output file
-        with open(cache_binary_path, mode=('wb' if out_is_binary else 'w')) as out_file:
-            if 'binary' in in_meta and 'path' in in_meta['binary']:
-                with open(os.path.join(cache_dir, in_meta['binary']['path']), mode=('rb' if in_is_binary else 'r')) as in_file:
-                    proc(in_file, out_file)
-            else:
-                proc(None, out_file)
+        proc(in_binary_path, cache_binary_path)
 
         # generate metafile
-        result_binary = {
-            'path': cache_binary_relpath,
-            'hash': HASH_FUNC(open(cache_binary_path, mode='rb').read()),
-        }
-
-        result_meta = {'binary': result_binary, 'parameters': result_parameters}
-        json.dump(result_meta, open(cache_meta_path, mode='w'), ensure_ascii=False, indent=4, separators=(',', ': '))
+        json.dump(
+            {
+                'binary': {
+                    'path': cache_binary_relpath,
+                    'hash': HASH_FUNC(open(cache_binary_path, mode='rb').read()),
+                },
+                'parameters': result_parameters
+            },
+            open(cache_meta_path, mode='w'),
+            ensure_ascii=False, indent=4, separators=(',', ': ')
+        )
 
     else:
         print_log('Using cache')
