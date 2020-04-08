@@ -17,12 +17,12 @@ Args = Dict[str, Any]
 CFG_PATH = '.pipeit.cfg'
 cfg:dict = toml.load(open(CFG_PATH, mode='r')) if os.path.exists(CFG_PATH) else {}
 
-CACHE_DIR = cfg.get('cache_dir') or '.pipeit_cache'
+CACHE_RELDIR = cfg.get('cache_dir') or '.pipeit_cache'
 CACHE_BINARY_EXT = cfg.get('cache_ext') or '.ppib'
 CACHE_META_EXT = cfg.get('cache_metafile_ext') or '.ppibmeta.json'
 
 def HASH_FUNC(v) -> str:
-    return base64.b64encode(hashlib.sha224(v).digest(), altchars=b'+!').decode()
+    return base64.urlsafe_b64encode(hashlib.sha224(v).digest()).decode()
 
 
 def _get_caller_path() -> str:
@@ -66,7 +66,9 @@ def _pipeit_with_io(
     disable_cache:bool=False,
 ):
 
-    # get caller's filename
+    command_line = ' '.join(sys.argv)
+    print_log = lambda content: print(command_line + '\n    ' + content, file=sys.stderr)
+
     program_path = os.path.abspath(program_path)
     program_name = os.path.basename(program_path)
 
@@ -84,24 +86,30 @@ def _pipeit_with_io(
     }
     result_hash = HASH_FUNC(json.dumps(result_parameters).encode())
 
-    cache_path_noext = os.path.abspath(os.path.join(os.path.dirname(program_path), CACHE_DIR, program_name, result_hash))
+    cache_dir = os.path.join(os.path.dirname(program_path), CACHE_RELDIR)
+    cache_relpath_noext = os.path.join(program_name, result_hash)
+    cache_path_noext = os.path.abspath(os.path.join(cache_dir, cache_relpath_noext))
     cache_binary_path = cache_path_noext + CACHE_BINARY_EXT
+    cache_binary_relpath = cache_relpath_noext + CACHE_BINARY_EXT
     cache_meta_path = cache_path_noext + CACHE_META_EXT
 
+    # make cache (data file) if not exists
     if disable_cache or (not os.path.exists(cache_binary_path) or not os.path.exists(cache_meta_path)):
-        print('Generating cache...', file=sys.stderr)
+        print_log('Generating...',)
 
         os.makedirs(os.path.dirname(cache_path_noext), exist_ok=True)
         
+        # process data with input file (if exists) and output file
         with open(cache_binary_path, mode=('wb' if out_is_binary else 'w')) as out_file:
             if 'binary' in in_meta and 'path' in in_meta['binary']:
-                with open(in_meta['binary']['path'], mode=('rb' if in_is_binary else 'r')) as in_file:
+                with open(os.path.join(cache_dir, in_meta['binary']['path']), mode=('rb' if in_is_binary else 'r')) as in_file:
                     proc(in_file, out_file)
             else:
                 proc(None, out_file)
 
+        # generate metafile
         result_binary = {
-            'path': cache_binary_path,
+            'path': cache_binary_relpath,
             'hash': HASH_FUNC(open(cache_binary_path, mode='rb').read()),
         }
 
@@ -109,7 +117,7 @@ def _pipeit_with_io(
         json.dump(result_meta, open(cache_meta_path, mode='w'), ensure_ascii=False, indent=4, separators=(',', ': '))
 
     else:
-        print('Using cache...', file=sys.stderr)
+        print_log('Using cache')
 
 
     if not sys.stdout.isatty():
