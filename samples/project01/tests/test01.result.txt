@@ -1,0 +1,5 @@
+cp1, cp2, cp3, cp4
+cp1, cp2, cp3, cp5
+cp1, cp2, cp4, cp5
+cp1, cp3, cp4, cp5
+cp2, cp3, cp4, cp5

@@ -52,19 +52,22 @@ def _pipeit_with_io(
     in_binary_path:Optional[str] = None
 
     if not sys.stdin.isatty():
-        # in_meta's key: binaries:(path, hash), parameters:(program, input, arguments)
-        
-        try:
-            in_meta:Optional[dict] = json.load(sys.stdin)
-        except json.JSONDecodeError:
-            print_log('Failed to get metadata of input.')
-            return False
 
+        stdin_content = sys.stdin.read().strip()
 
-        if not 'binary' in in_meta or not 'path' in in_meta['binary']:
-            raise RuntimeError('Missing path in input metafile.')
+        if stdin_content:
+            
+            try:
+                in_meta:Optional[dict] = json.loads(stdin_content)
+                # in_meta's key: binaries:(path, hash), parameters:(program, input, arguments)
+            except json.JSONDecodeError:
+                print_log('Failed to get metadata of input.')
+                return False
 
-        in_binary_path = os.path.join(cache_dir, in_meta['binary']['path'])
+            if not 'binary' in in_meta or not 'path' in in_meta['binary']:
+                raise RuntimeError('Missing path in input metafile.')
+
+            in_binary_path = os.path.join(cache_dir, in_meta['binary']['path'])
 
 
     if no_output:
