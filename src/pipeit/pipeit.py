@@ -1,9 +1,11 @@
-import pipeit_core
+from . import pipeit_core
 import json
 import pickle
 import inspect
 from typing import Any, Callable, Dict, List, Tuple, NewType, IO, Optional
 
+
+VERSION = '0.1.0' # for setup.cfg
 
 Data = NewType('Data', Any)
 Args = Dict[str, Any]
