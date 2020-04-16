@@ -10,7 +10,7 @@ def show_elements(data):
    
    
 def main():
-    return pipeit.pipeit_with_json(None, show_elements, disable_cache=True)
+    return pipeit.pipeit_with_json(None, show_elements, disable_cache=True, no_output=True)
 
 
 if __name__ == "__main__":
