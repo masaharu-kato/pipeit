@@ -33,10 +33,10 @@ def pipeit_with_data(args:Args, proc:Callable[[Data], Data], **options):
     return _pipeit_with_io(_get_caller_path(), args, lambda infile, outfile: _proc_with_pickle(proc, infile, outfile), **options)
 
 
-def _proc_with_pickle(proc:Callable[[Data], Data], infile:Optional[IO], outfile:IO) -> None:
+def _proc_with_pickle(proc:Callable[[Data], Data], infile:Optional[IO], outfile:Optional[IO]) -> None:
     indata = pickle.load(infile) if infile else None
     outdata = proc(indata)
-    pickle.dump(outdata, outfile)
+    if outfile: pickle.dump(outdata, outfile)
 
 
 
@@ -44,57 +44,31 @@ def pipeit_with_json(args:Args, proc:Callable[[Data], Data], **options):
     return _pipeit_with_io(_get_caller_path(), args, lambda infile, outfile: _proc_with_json(proc, infile, outfile), in_is_binary=False, out_is_binary=False, **options)
 
 
-def _proc_with_json(proc:Callable[[Data], Data], infile:Optional[IO], outfile:IO) -> None:
+def _proc_with_json(proc:Callable[[Data], Data], infile:Optional[IO], outfile:Optional[IO]) -> None:
     indata = json.load(infile) if infile else None
     outdata = proc(indata)
-    json.dump(outdata, outfile)
+    if outfile: json.dump(outdata, outfile)
 
 
 
-def pipeit_with_io(args:Args, proc:Callable[[Optional[IO]], IO]):
-    return _pipeit_with_io(_get_caller_path(), args, proc)
+def pipeit_with_io(args:Args, proc:Callable[[Optional[IO]], IO], **options):
+    return _pipeit_with_io(_get_caller_path(), args, proc, **options)
 
 
 
 def _pipeit_with_io(
     program_path:str,
     args:Args,
-    proc:Callable[[Optional[IO]], IO],
-    **options
-):
-    return _pipeit_with_iopath(program_path, args, lambda in_path, out_path: _proc_with_io(proc, in_path, out_path, **options), **options)
-
-
-def _proc_with_io(
-    proc:Callable[[Optional[IO]], IO],
-    in_path:Optional[str],
-    out_path:Optional[str],
+    proc:Callable[[Optional[IO]], Optional[IO]],
     *,
     in_is_binary:bool=True,
     out_is_binary:bool=True,
-    **options
-):
-    with open(out_path, mode=('wb' if out_is_binary else 'w')) as out_file:
-        if in_path is None:
-            proc(None, out_file)
-        else:
-            with open(in_path, mode=('rb' if in_is_binary else 'r')) as in_file:
-                proc(in_file, out_file)
-
-
-
-def _pipeit_with_iopath(
-    program_path:str,
-    args:Args,
-    proc:Callable[[Optional[str]], str],
-    *,
     disable_cache:bool=False,
     no_output:bool=False,
-    **options
-):
+) -> bool:
 
     command_line = ' '.join(sys.argv)
-    print_log = lambda *args: print(*args, file=sys.stderr)
+    print_log = lambda *args: print(command_line, ':', *args, file=sys.stderr)
 
     program_path = os.path.abspath(program_path)
     program_name = os.path.basename(program_path)
@@ -111,7 +85,12 @@ def _pipeit_with_iopath(
     if not sys.stdin.isatty():
         # in_meta's key: binaries:(path, hash), parameters:(program, input, arguments)
         
-        in_meta:Optional[dict] = json.load(sys.stdin)
+        try:
+            in_meta:Optional[dict] = json.load(sys.stdin)
+        except json.JSONDecodeError:
+            print_log('Failed to get metadata of input.')
+            return False
+
 
         if not 'binary' in in_meta or not 'path' in in_meta['binary']:
             raise RuntimeError('Missing path in input metafile.')
@@ -120,8 +99,13 @@ def _pipeit_with_iopath(
 
 
     if no_output:
-        proc(in_binary_path, None)
-        return
+        print_log('Generating with no output...')
+        if in_binary_path is None:
+            proc(None, None)
+        else:
+            with open(in_binary_path, mode=('rb' if in_is_binary else 'r')) as in_file:
+                proc(in_file, None)
+        return True
 
 
     # make parameters in result data
@@ -140,12 +124,17 @@ def _pipeit_with_iopath(
 
     # make cache (data file) if not exists
     if disable_cache or (not os.path.exists(cache_binary_path) or not os.path.exists(cache_meta_path)):
-        print_log('Generating...',)
+        print_log('Generating...')
 
         os.makedirs(os.path.dirname(cache_path_noext), exist_ok=True)
 
-        # process data with input file (if exists) and output file
-        proc(in_binary_path, cache_binary_path)
+        # process data with input file (if exists) and output file   
+        with open(cache_binary_path, mode=('wb' if out_is_binary else 'w')) as out_file:
+            if in_binary_path is None:
+                proc(None, out_file)
+            else:
+                with open(in_binary_path, mode=('rb' if in_is_binary else 'r')) as in_file:
+                    proc(in_file, out_file)
 
         # generate metafile
         json.dump(
@@ -167,3 +156,4 @@ def _pipeit_with_iopath(
     if not sys.stdout.isatty():
         print(open(cache_meta_path, mode='r').read())
     
+    return True
